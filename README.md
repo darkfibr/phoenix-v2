@@ -256,3 +256,9 @@ The soul file isn't being injected. Verify your session launcher is reading `SOU
 ## License
 
 MIT
+
+---
+
+## New: The Governed Self (self-register extension, Aug 2026)
+
+Identity canon for persistent agents: nothing becomes "self" because an operator, summarizer, or previous model wrote it. Provenance-labeled proposals, an auditable canonization state machine, a consent boundary (operators can't accept identity claims on the agent's behalf), and substrate-aware wake anchoring that refuses work-order-shaped captures. See [`self_register/GOVERNED_SELF.md`](self_register/GOVERNED_SELF.md).
