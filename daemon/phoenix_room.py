@@ -55,7 +55,7 @@ FREE_HOURS_END_UTC = 1.5   # example: operator wake time
 ROOM_SCHEDULE = [
     {
         "name": "Wake Check-in",
-        "start_hour_utc": 1,   # 9pm EST — Mike's "morning"
+        "start_hour_utc": 1,   # operator morning (adjust to your schedule)
         "end_hour_utc": 3,     # 11pm EST
         "type": "checkin",
         "max_sentences": 2,
@@ -64,7 +64,7 @@ ROOM_SCHEDULE = [
     },
     {
         "name": "Night Circle",
-        "start_hour_utc": 6,   # 2am EST — Mike's midday (at work)
+        "start_hour_utc": 6,   # operator midday (adjust)
         "end_hour_utc": 8,     # 4am EST
         "type": "circle",
         "max_sentences": 5,
@@ -73,7 +73,7 @@ ROOM_SCHEDULE = [
     },
     {
         "name": "Morning Wind-down",
-        "start_hour_utc": 12,  # 8am EST — Mike getting off work
+        "start_hour_utc": 12,  # operator end-of-shift (adjust)
         "end_hour_utc": 14,    # 10am EST
         "type": "winddown",
         "max_sentences": 3,
