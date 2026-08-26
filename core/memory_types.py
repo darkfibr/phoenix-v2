@@ -147,7 +147,7 @@ SPECS: dict[MemoryType, TypeSpec] = {
         keywords=("concept", "definition", "architecture", "API", "model"),
         examples=(
             "MiniMax-M3 has 428B total params, 23B active, Intelligence Index 44.",
-            "InvokeAI runs on port 9091, uses Python 3.11 venv on darkphoenix.",
+            "InvokeAI runs on port 9091, uses Python 3.11 venv on the primary server.",
         ),
         patterns=_SEMANTIC_PATTERNS,
     ),
