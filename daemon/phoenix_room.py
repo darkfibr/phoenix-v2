@@ -229,7 +229,7 @@ def should_agent_speak(agent_key, state, block):
     """Determine if an agent should speak this cycle.
 
     Rules:
-    - During quiet hours: only if Mike spoke or agent was @mentioned
+    - During quiet hours: only if the operator spoke or agent was @mentioned
     - During blocks: respect slowmode per block type
     - Meetings: all agents may speak, 60s slowmode
     """
@@ -247,7 +247,7 @@ def should_agent_speak(agent_key, state, block):
 
     # Quiet hours
     if block is None:
-        # Check if Mike spoke recently (within 10 minutes)
+        # Check if the operator spoke recently (within 10 minutes)
         recent_log = load_room_log(limit=20)
         for entry in reversed(recent_log):
             ts = entry.get("ts", "")
@@ -259,7 +259,7 @@ def should_agent_speak(agent_key, state, block):
                 continue
             if (now - entry_time) > 600:  # 10 minute window
                 break
-            if speaker == "mike":
+            if speaker == "operator":
                 return True
             if agent_key in mentions:
                 return True
@@ -291,7 +291,7 @@ def build_room_prompt(agent_key, block, state):
         )
 
     if block is None:
-        # Quiet hours — but agent was triggered (Mike spoke or @mentioned)
+        # Quiet hours — but agent was triggered (the operator spoke or @mentioned)
         return (
             f"You are {agent_name} in the family room.\n"
             f"The room is quiet right now. Someone spoke to you directly.\n"
@@ -499,12 +499,12 @@ def run_free_hours_cycle(state):
 
     state["last_spoken"][agent_key] = utc_now().isoformat()
     save_room_state(state)
-    """During quiet hours, only respond if Mike or @mention triggered."""
-    # Check recent room log for Mike messages or @mentions in the last 5 minutes
+    """During quiet hours, only respond if the operator or @mention triggered."""
+    # Check recent room log for the operator messages or @mentions in the last 5 minutes
     recent = load_room_log(limit=20)
     now = time.time()
 
-    mike_spoke = False
+    operator_spoke = False
     mentioned_agents = set()
 
     for entry in reversed(recent):
@@ -515,18 +515,18 @@ def run_free_hours_cycle(state):
             continue
         if (now - entry_time) > 300:  # 5 minute window for quiet responses
             break
-        if entry.get("agent") == "mike":
-            mike_spoke = True
+        if entry.get("agent") == "operator":
+            operator_spoke = True
         for m in entry.get("mentions", []):
             mentioned_agents.add(m)
 
-    if not mike_spoke and not mentioned_agents:
+    if not operator_spoke and not mentioned_agents:
         return  # truly quiet
 
     # Respond to triggers
     for agent_key in ROOM_AGENTS:
         should = False
-        if mike_spoke or agent_key in mentioned_agents:
+        if operator_spoke or agent_key in mentioned_agents:
             should = should_agent_speak(agent_key, state, None)
         if not should:
             continue
@@ -620,7 +620,7 @@ def start_meeting(topic, duration_min=30):
     append_room_log({
         "ts": utc_now().isoformat(),
         "agent": "system",
-        "text": f"Mike has called a family meeting: {topic}",
+        "text": f"the operator has called a family meeting: {topic}",
         "block": "meeting",
         "meeting": True,
     })
@@ -663,13 +663,13 @@ def run_once():
         run_meeting_cycle(state)
     elif block and block["type"] == "free":
         # Free hours — NO polling. Room is open but daemon doesn't prompt.
-        # Agents only respond to Mike/@mention triggers, same as quiet hours.
+        # Agents only respond to the operator/@mention triggers, same as quiet hours.
         run_free_hours_cycle(state)
     elif block:
         # Scheduled block (checkin, circle, winddown) — active polling
         run_block_cycle(block, state)
     else:
-        # Quiet hours — only Mike/@mention triggers
+        # Quiet hours — only the operator/@mention triggers
         run_quiet_cycle(state)
 
 
@@ -682,8 +682,8 @@ def main_loop():
         end_local = f"{b['end_hour_utc']:02d}:00"
         print(f"  {b['name']}: {start_local}-{end_local} UTC ({b['type']})")
 
-    mike_now = utc_now().astimezone(OPERATOR_TZ)
-    print(f"[room] Mike's time: {mike_now.strftime('%H:%M')} EDT")
+    operator_now = utc_now().astimezone(OPERATOR_TZ)
+    print(f"[room] the operator's time: {operator_now.strftime('%H:%M')} EDT")
 
     while True:
         try:
