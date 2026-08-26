@@ -4,7 +4,7 @@ Phase 1: SQLite-backed structured memory with salience, decay, and associations.
 
 Usage:
     db = MemoryDB("~/.phoenix/v2/phoenix_v2.db")
-    db.add_memory(agent_id="k", content="Mike likes IPAs", type_name="semantic")
+    db.add_memory(agent_id="agent1", content="The operator likes IPAs", type_name="semantic")
     results = db.search(agent_id="k", query="beer", limit=5)
 """
 
@@ -677,20 +677,20 @@ if __name__ == "__main__":
     db = MemoryDB("/tmp/phoenix_v2_test.db")
     mid = db.add_memory(
         agent_id="k",
-        content="Mike drinks IPAs on his nights off. Bradenton, FL.",
+        content="The operator drinks IPAs on their nights off.",
         type_name="semantic",
         source="terminal",
-        tags=["mike", "beer", "location"],
-        entities=[("Mike", "person"), ("Bradenton", "place")],
+        tags=["operator", "beer"],
+        entities=[("operator", "person")],
     )
     print(f"Added memory {mid}")
     db.add_memory(
         agent_id="k",
-        content="Chloe sleeps on the floor when the windows are closed.",
+        content="The household pet sleeps on the floor when the windows are closed.",
         type_name="episodic",
         source="phoenix_chat",
-        tags=["chloe", "home"],
-        entities=[("Chloe", "animal"), ("Mike", "person")],
+        tags=["pet", "home"],
+        entities=[("operator", "person")],
     )
     print("Search 'beer':", db.search("k", "beer"))
     print("Stats:", db.stats("k"))

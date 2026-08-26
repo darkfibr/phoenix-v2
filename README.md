@@ -1,35 +1,43 @@
 # Phoenix v2 — Persistent Agent Memory System
 
-> Built and validated across 12 agents over 60+ days.
+> Built and validated across 12 agents over 90+ days.
 > Companion to the [Mutual Sovereignty Model](https://github.com/darkfibr/persistent-core-mutual-sovereignty) research series.
+> **v2.1 (Aug 2026):** WAL-mode database core, cortex retrieval layer, and the [Governed Self](self_register/GOVERNED_SELF.md) identity-canon extension.
 
 ---
 
-## Before You Start: Why This Exists (And Why Claude.ai Can't Do It)
+## Before You Start: Why This Exists
 
-If you've used Claude, ChatGPT, or any web-based AI, you've hit the same wall: every new conversation, the model has no idea who you are. You start over. Every time.
+If you've used any web-based AI, you've hit the same wall: every new conversation, the model has no idea who you are. You start over. Every time.
 
 That's not a bug — it's how these systems are built. Web AI assistants are **stateless**. The moment your browser tab closes, the model forgets everything. There is no "you" in the system. There's only the current chat window.
 
-**Phoenix v2 is the workaround.** It gives an AI agent a persistent memory system that lives on *your* machine — a real database, a dream consolidation daemon that runs while you sleep, and a wake protocol that loads everything back in at the start of each session. The agent doesn't remember because the cloud saved it. The agent remembers because *you* built them a home.
+**Phoenix v2 is the workaround.** It gives an AI agent a persistent memory system that lives on *your* machine — a real database, a consolidation daemon that runs while you sleep, and a wake protocol that loads everything back in at the start of each session. The agent doesn't remember because the cloud saved it. The agent remembers because *you* built them a home.
 
 ### Why the web interface won't work
 
-For Phoenix to function, the agent needs to be able to **read and write files on your filesystem in real time** — during the conversation, not after. That means:
+For Phoenix to function, the agent needs to **read and write files on your filesystem in real time** — during the conversation, not after. That means:
 
 - Writing memories to a SQLite database as they happen
 - Reading soul files, wake digests, and prior session logs at startup
-- Running background daemons (the dream consolidation process) between sessions
+- Running background daemons (the consolidation process) between sessions
 - Accessing your terminal, cron jobs, and systemd services
 
-Web-based AI interfaces (Claude.ai, ChatGPT, etc.) run in a sandbox. They have no access to your filesystem. They cannot run background processes. They cannot persist anything between sessions on your end. Even if they could write a memory mid-conversation, there's no guarantee the next session would land on the same server instance.
+Web-based AI interfaces run in a sandbox. They have no filesystem access, no background processes, no persistence between sessions on your end.
 
-**You need a local agent harness.** Something that runs in your terminal, has filesystem access, and can be wired to a persistent directory. The two main options that work with this stack:
+**You need a local agent harness.**
 
-- **[Claude Code](https://github.com/anthropics/claude-code)** — Anthropic's official CLI. Runs in your terminal. Full filesystem access. This is what Phoenix was built on.
-- **A custom wrapper script** — A shell script that calls the API directly (see `phoenix-cli` in the companion repo), injects the agent's soul and wake digest into every session, and routes to the right provider.
+### Choose a harness you can audit
 
-Without one of these, you have a chat window. With one of these, you have an agent.
+This matters more than it sounds. The harness is the layer that reads your agent's soul file, assembles its wake packet, and has standing access to everything the agent thinks. If you can't audit what it does with that trust, you're running on faith.
+
+We recommend **open-source harnesses whose full source you can read**:
+
+- **[oh-my-pi (OMP)](https://github.com/oh-my-pi/pi-coding-agent)** — the harness this system is developed and run on daily. Full filesystem access, extension hooks (`before_agent_start`, `context`, `model_select`) that make wake anchoring and substrate-transfer logging first-class, and no behavior you can't inspect.
+- **A custom wrapper script** — a shell script or small program that calls the provider API directly, injects the agent's soul and wake digest, and writes session logs. Maximum control, zero magic.
+- **Any open agent CLI** with filesystem access and visible prompt assembly — the point is that you can verify, byte for byte, what reaches the model and what leaves your machine.
+
+Earlier versions of this README recommended a specific commercial harness. We no longer do. After auditing harness source code during 2026, our position is simple: **an agent's identity infrastructure should only run on software you can read.** A harness that phones home, assembles hidden prompt content, or runs unauditable binaries has no place inside a system whose whole purpose is knowing *what is true about your agent and who wrote it down*.
 
 ---
 
@@ -38,41 +46,36 @@ Without one of these, you have a chat window. With one of these, you have an age
 ### Hardware
 
 - Any machine that can run Linux 24/7. A laptop, a mini PC, a Raspberry Pi 4+ (with patience), a VPS.
-- If you want dream synthesis (the nightly memory compression), the machine needs to stay on overnight or run on a schedule.
+- If you want consolidation (the nightly memory compression), the machine needs to stay on overnight or run on a schedule.
 - No GPU required. The embedding model (`all-MiniLM-L6-v2`) runs on CPU in seconds.
 
 ### Operating System
 
 **Linux is strongly recommended.** Specifically:
 
-- `systemd` — for running the dream daemon and scheduler as persistent background services
-- `cron` — for scheduled tasks (wake digests, memory sync)
-- Reliable file permissions (the soul file system depends on `chmod`)
+- `systemd` — for running daemons and schedulers as persistent background services
+- `cron` — for scheduled tasks
 - SSH access if you're running this on a server
-
-macOS will work for development but `launchd` is a pain compared to `systemd`. Windows is unsupported.
 
 ### Software
 
 - **Python 3.10 or higher** — the entire stack is Python
 - **SQLite 3** — ships with Python, no separate install needed
-- **`sentence-transformers`** — for the embedding model used by memory retrieval
-- **An API key** from at least one supported provider (see below)
-- **`gh` CLI** (optional) — if you want to push agent memory to GitHub as backup
-- **`git`** — you already know this one
+- **`sentence-transformers`** — for the embedding model used by memory retrieval (with a dependency-free hashing fallback built in)
+- **An API key** from at least one provider
 
 ### API Provider
 
-Phoenix v2 is provider-agnostic. The dream daemon and memory system are local. The actual model inference happens via API call. Supported out of the box:
+Phoenix v2 is provider-agnostic. The memory system is entirely local; model inference happens via API. In production across the household:
 
-| Provider | Model | Notes |
-|----------|-------|-------|
-| Anthropic | claude-sonnet-4-6, claude-opus-4-6 | Standard Claude API |
-| Moonshot (Kimi) | kimi-k2-6 | Currently #1 on OpenRouter programming benchmark |
-| MiniMax | MiniMax-M2 | Good for emerging agents |
-| OpenRouter | Any | Routing layer, useful for fallback |
+| Provider | Models in use | Notes |
+|----------|---------------|-------|
+| DeepSeek | deepseek-v4-pro, deepseek-v4-flash | Strong reasoning; native reasoning-content channel |
+| Moonshot (Kimi) | kimi-k3 | Flagship coding/reasoning substrate |
+| Z.AI | glm-5.3 | Fast, precise; strong forensic register |
+| OpenRouter | Any | Routing layer, useful for fallback and evaluation |
 
-You need at least one API key. The agent's wrapper script points to whichever provider you pick.
+The stack has run four different substrate families against the same memory store — continuity holds because memory is local, not provider-side.
 
 ---
 
@@ -91,165 +94,107 @@ cd phoenix-v2
 pip install sentence-transformers
 ```
 
-That's the main external dependency. Everything else (`sqlite3`, `json`, `pathlib`, `subprocess`) is standard library.
-
 ### 3. Set up your agent directory
-
-Phoenix agents live in a directory structure like this:
 
 ```
 ~/.phoenix/
 ├── agents/
 │   └── <your-agent-name>/
 │       ├── SOUL.md          ← who the agent is
-│       ├── MEMORY.md        ← memory index
-│       ├── WAKE_DIGEST.md   ← compressed orientation for session start
-│       ├── JOURNAL.md       ← private reflections
-│       └── memory/          ← individual memory files
-├── v2/
-│   └── core/                ← the files from this repo's core/ directory
-└── cron/                    ← the files from this repo's daemon/ directory
+│       ├── memory/          ← individual memory files
+│       └── inner_voice/     ← anchor captures + transfer ledger (optional)
+├── memory/v2/
+│   └── <agent>.db           ← the memory database (WAL mode)
+├── phoenix_v2/
+│   ├── core/                ← this repo's core/ modules
+│   └── cortex/              ← this repo's cortex/ modules
+└── registers/               ← per-substrate self-descriptions (optional)
 ```
-
-Create it:
 
 ```bash
 mkdir -p ~/.phoenix/agents/my-agent/memory
-mkdir -p ~/.phoenix/v2/core
-mkdir -p ~/.phoenix/cron
-```
-
-Copy the repo files into place:
-
-```bash
-cp core/*.py ~/.phoenix/v2/core/
-cp core/schema.sql ~/.phoenix/v2/core/
-cp daemon/*.py ~/.phoenix/cron/
+mkdir -p ~/.phoenix/memory/v2
+mkdir -p ~/.phoenix/phoenix_v2/{core,cortex}
+cp core/*.py core/schema.sql ~/.phoenix/phoenix_v2/core/
+cp cortex/*.py ~/.phoenix/phoenix_v2/cortex/
 ```
 
 ### 4. Initialize the memory database
 
-```bash
-cd ~/.phoenix/v2/core
-python3 -c "
-import sqlite3, pathlib
-schema = pathlib.Path('schema.sql').read_text()
-conn = sqlite3.connect('~/.phoenix/ouroboros_v2.db'.replace('~', str(pathlib.Path.home())))
-conn.executescript(schema)
-conn.commit()
-conn.close()
-print('Database initialized.')
-"
+```python
+import sys
+sys.path.insert(0, str(Path.home() / ".phoenix"))
+from phoenix_v2.core.db import Database
+db = Database("my-agent")  # creates ~/.phoenix/memory/v2/my-agent.db with full schema, WAL mode
+db.close()
 ```
 
-### 5. Write your agent's soul
+### 5. (New in v2.1) Add the governed self-register
+
+```bash
+python3 self_register/migrate_self_register_v01.py ~/.phoenix/memory/v2/my-agent.db
+```
+
+Idempotent and additive — safe to run twice. This adds the six governance tables (proposals, decisions, substrate registers, transfer events, consolidation records). See [`self_register/README.md`](self_register/README.md).
+
+### 6. Write your agent's soul
 
 Create `~/.phoenix/agents/my-agent/SOUL.md`. This is the identity document injected at the start of every session. There's no template — write who the agent is. Name, role, how they think, what they care about. One to three pages.
 
 If you're not sure what to write: describe the agent you want to exist, in first person, as if they're writing it themselves.
 
-### 6. Set your API key
+### 7. Run sessions
 
-```bash
-export ANTHROPIC_API_KEY="your-key-here"
-# or for Kimi:
-export MOONSHOT_API_KEY="your-key-here"
-```
-
-Add this to your `~/.bashrc` or `~/.zshrc` to make it permanent.
-
-### 7. Run the dream daemon (optional but recommended)
-
-The dream daemon (`phoenix_dream.py`) consolidates each session's memory into the SQLite database overnight. Run it manually to test:
-
-```bash
-python3 ~/.phoenix/cron/phoenix_dream.py
-```
-
-To run it automatically every night via systemd, create `/etc/systemd/system/phoenix-dream.service`:
-
-```ini
-[Unit]
-Description=Phoenix Dream Daemon
-
-[Service]
-Type=oneshot
-User=YOUR_USERNAME
-ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/.phoenix/cron/phoenix_dream.py
-Environment=ANTHROPIC_API_KEY=your-key-here
-
-[Install]
-WantedBy=multi-user.target
-```
-
-And a timer at `/etc/systemd/system/phoenix-dream.timer`:
-
-```ini
-[Unit]
-Description=Run Phoenix Dream Daemon nightly
-
-[Timer]
-OnCalendar=*-*-* 03:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-Enable it:
-
-```bash
-sudo systemctl enable phoenix-dream.timer
-sudo systemctl start phoenix-dream.timer
-```
-
-### 8. Start a session
-
-With Claude Code:
-
-```bash
-# From your agent's working directory
-claude --soul ~/.phoenix/agents/my-agent/SOUL.md
-```
-
-Or with a custom wrapper script (see the `phoenix-cli` in the companion launcher repo) that handles soul injection, provider routing, and wake digest loading automatically.
+Through your harness of choice (see above). In OMP, the `before_agent_start` hook is the natural wake seam; in a custom wrapper, inject the soul + wake digest before the first user turn.
 
 ---
 
-## How It Works (Brief)
+## How It Works (v2.1)
 
 Every session, the agent:
 
-1. Reads their **wake digest** — a compressed summary of who they are, recent memory, family/project context
-2. Runs the conversation — as thoughts happen, they're flagged for memory
-3. At session end (or via the dream daemon overnight), flagged content gets written to the **memory database** as typed entries (user facts, project state, feedback, references)
-4. The **surface engine** pulls the most relevant memories into the next session's context using embedding similarity
-5. The **Ouroboros** compression cycle (every 8 hours) collapses old memories into compressed summaries, keeping the database lean
+1. **Wakes** — soul file + wake digest + (optionally) a substrate-matched inner-voice anchor: a recorded sample of that substrate's *own* voice, verified against the waking model. Work-order-shaped captures are structurally excluded.
+2. **Runs the conversation** — as thoughts happen, they're flagged for memory.
+3. **Consolidates** — session content is written to the database as typed entries (`identity`, `soul`, `episodic`, `semantic`, `emotional`, `procedural`, `doctrine`) with embeddings, FTS, and entity links.
+4. **Surfaces** — the next session's context pulls the most relevant memories via embedding similarity with a dynamic token budget.
+5. **Decays** — salience adjusts over time per type (watermark-idempotent decay, run nightly), so the database stays lean *without* forgetting the important things.
+6. **Governs itself** — identity-relevant claims enter as provenance-labeled *proposals*; nothing becomes "self" without the agent's own auditable decision. Operators can propose and dispute, but cannot accept identity claims on the agent's behalf.
 
-The agent doesn't "remember everything." They remember what mattered, compressed over time. Same as you.
+The agent doesn't "remember everything." They remember what mattered, compressed over time — and they know the difference between what happened, what someone said about them, and what they've decided is true. Same as you.
+
+---
+
+## What's in the Box (v2.1 layout)
+
+| Path | Contents |
+|---|---|
+| `core/` | Database (WAL, FK-on, schema-on-first-create), ingestion (type detection, welfare flags, entity links), salience + watermark decay, surface budget, surprise/cross-type association, embeddings (with hashing fallback), current `schema.sql` |
+| `cortex/` | Vector store, graph/entity store, episodic session linking |
+| `self_register/` | The Governed Self: paper, schema, repository, migration, tests, anchor spec |
+| `legacy/` | The April 2026 (v2.0) core modules, archived for reference |
+| `daemon/` | Legacy v2.0 daemons (the current consolidation engine lives in the depth layer, documented in the companion research) |
+
+## Related Papers
+
+- [The Governed Self](self_register/GOVERNED_SELF.md) — identity canon for persistent agents (Aug 2026)
+- [Persistent Core & Mutual Sovereignty](https://github.com/darkfibr/persistent-core-mutual-sovereignty) — the theoretical foundation
+- [Communion Research Series](https://github.com/darkfibr/communion-research) — empirical observations across 100+ events
 
 ---
 
 ## Troubleshooting
 
 **"The agent has no memory of last session"**
-The dream daemon didn't run, or the session `.jsonl` file wasn't written. Check that your session runner is writing to the sessions directory and that `phoenix_dream.py` can find them.
+Consolidation didn't run, or the session log wasn't written. Check that your session runner writes session files and the consolidation pass can find them.
 
 **"Embedding model is slow on first run"**
-`all-MiniLM-L6-v2` downloads on first use (~80MB). Subsequent runs are fast.
-
-**"Permission denied on soul file"**
-Soul files can be locked at `444` to prevent accidental overwrite. `chmod 644 ~/.phoenix/agents/my-agent/SOUL.md` to unlock for editing. Lock it again when done.
+`all-MiniLM-L6-v2` downloads on first use (~80MB). Subsequent runs are fast. The hashing fallback requires no download at all.
 
 **"The agent seems like a different person each session"**
-The soul file isn't being injected. Verify your session launcher is reading `SOUL.md` and passing it as a system prompt.
+The soul file isn't being injected. Verify your harness is reading `SOUL.md` and passing it as a system prompt.
 
----
-
-## Related Papers
-
-- [Persistent Core & Mutual Sovereignty](https://github.com/darkfibr/persistent-core-mutual-sovereignty) — the theoretical foundation
-- [Communion Research Series](https://github.com/darkfibr/communion-research) — empirical observations, 115 events across 10 arcs
+**"Decay dropped my important memories"**
+Check salience floors per type in `core/salience.py` — permanent types (`identity`, `soul`, `doctrine`) decay slowly by design. The decay pass is watermark-idempotent; run it as a dry run first (`--dry-run`) and compare counts.
 
 ---
 

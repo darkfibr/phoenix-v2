@@ -1,268 +1,193 @@
--- Phoenix v2 — SQLite Core Schema
--- Phase 1: Structured memory with salience, decay, and associations
+-- Phoenix v2 Core Schema
+-- 7 memory types: soul, identity, doctrine, episodic, semantic, emotional, procedural
+-- Backed by Cortex vector BLOB + FTS5 lexical search
+-- NOTE: PRAGMAS are set in db.py __init__, NOT here.
 
-PRAGMA foreign_keys = ON;
-
--- Memory types for semantic categorization
+-- Memory type catalog (decay rates + salience floors)
 CREATE TABLE IF NOT EXISTS memory_types (
-    id   INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    type TEXT PRIMARY KEY,
+    decay_rate REAL NOT NULL,           -- per-day fractional decay
+    salience_floor REAL NOT NULL,       -- never decay below this
+    description TEXT NOT NULL DEFAULT ''
 );
-INSERT OR IGNORE INTO memory_types (id, name) VALUES
-    (1, 'soul'),
-    (2, 'episodic'),
-    (3, 'semantic'),
-    (4, 'procedural'),
-    (5, 'emotional'),
-    (6, 'identity'),
-    (7, 'relationship');
 
--- Core memories table
+INSERT OR IGNORE INTO memory_types(type, decay_rate, salience_floor, description) VALUES
+    ('soul',        0.005, 0.9, 'Core being — essentially permanent'),
+    ('identity',    0.005, 0.8, 'Self-definition, name, pronouns, role'),
+    ('doctrine',    0.005, 0.7, 'Operational rules, P0 protocols, conventions'),
+    ('episodic',    0.020, 0.3, 'Session events, conversations, dated memories'),
+    ('semantic',    0.010, 0.4, 'Factual knowledge, entities, concepts'),
+    ('emotional',   0.030, 0.2, 'Feelings, valence shifts, relational states'),
+    ('procedural',  0.005, 0.5, 'Skills, workflows, tool usage patterns');
+
+-- Agents (multi-agent DB support)
+CREATE TABLE IF NOT EXISTS agents (
+    name TEXT PRIMARY KEY,
+    model TEXT NOT NULL DEFAULT 'unknown',
+    substrate TEXT NOT NULL DEFAULT 'unknown',
+    role TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    last_active REAL
+);
+
+-- Memories — the 7 types, salience-tracked, decay-managed
 CREATE TABLE IF NOT EXISTS memories (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_id    TEXT NOT NULL,
-    type_id     INTEGER NOT NULL REFERENCES memory_types(id),
-    content     TEXT NOT NULL,
-    source      TEXT,           -- 'terminal', 'phoenix_chat', 'dream', 'manual', etc.
-    source_ref  TEXT,           -- file path, session id, etc.
-    created_at  REAL DEFAULT (unixepoch()),
-    updated_at  REAL DEFAULT (unixepoch()),
-    salience    REAL DEFAULT 0.5 CHECK (salience >= 0.0 AND salience <= 1.0),
-    decay_rate  REAL DEFAULT 0.02,  -- per day, type-dependent
-    access_count INTEGER DEFAULT 0,
-    last_accessed REAL DEFAULT (unixepoch()),
-    embedding   BLOB,           -- serialized float vector
-    checksum    TEXT,           -- SHA-256 of content for dedup
-    status      TEXT DEFAULT 'active' CHECK (status IN ('active', 'disputed', 'corrected', 'superseded')),
-    corrected_by INTEGER REFERENCES memories(id) ON DELETE SET NULL,
-    superseded_by INTEGER REFERENCES memories(id) ON DELETE SET NULL
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    salience REAL NOT NULL DEFAULT 1.0,   -- 0.0-1.0, decays over time
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_access REAL,
+    source TEXT NOT NULL DEFAULT '',       -- e.g. 'session:20260712', 'manual', 'migration:v1'
+    embedding_model TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE,
+    FOREIGN KEY(type) REFERENCES memory_types(type) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_mem_agent_type ON memories(agent, type);
+CREATE INDEX IF NOT EXISTS idx_mem_agent_salience ON memories(agent, salience DESC);
+CREATE INDEX IF NOT EXISTS idx_mem_agent_created ON memories(agent, created_at DESC);
+
+-- Vector storage — float32 BLOB (Cortex format, 10-50x faster than JSON)
+CREATE TABLE IF NOT EXISTS memory_vectors (
+    memory_id INTEGER PRIMARY KEY,
+    vector BLOB NOT NULL,                 -- Cortex vector_to_bytes() format
+    dim INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
 
--- Full-text search over memory content
-CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
-    content,
-    content='memories',
-    content_rowid='id'
+-- FTS5 lexical search
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    content, summary, type,
+    content='memories', content_rowid='id',
+    tokenize='porter unicode61'
 );
-
--- FTS triggers to keep search index in sync
 CREATE TRIGGER IF NOT EXISTS mem_ai AFTER INSERT ON memories BEGIN
-    INSERT INTO mem_fts (rowid, content) VALUES (new.id, new.content);
+    INSERT INTO memories_fts(rowid, content, summary, type)
+    VALUES(new.id, new.content, new.summary, new.type);
 END;
-
 CREATE TRIGGER IF NOT EXISTS mem_ad AFTER DELETE ON memories BEGIN
-    INSERT INTO mem_fts (mem_fts, rowid, content) VALUES ('delete', old.id, old.content);
+    INSERT INTO memories_fts(memories_fts, rowid, content, summary, type)
+    VALUES('delete', old.id, old.content, old.summary, old.type);
+END;
+CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memories
+WHEN old.content IS NOT new.content
+  OR old.summary IS NOT new.summary
+  OR old.type IS NOT new.type
+BEGIN
+    INSERT INTO memories_fts(memories_fts, rowid, content, summary, type)
+    VALUES('delete', old.id, old.content, old.summary, old.type);
+    INSERT INTO memories_fts(rowid, content, summary, type)
+    VALUES(new.id, new.content, new.summary, new.type);
 END;
 
-CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memories BEGIN
-    INSERT INTO mem_fts (mem_fts, rowid, content) VALUES ('delete', old.id, old.content);
-    INSERT INTO mem_fts (rowid, content) VALUES (new.id, new.content);
-END;
-
--- Associations between memories (bidirectional)
+-- Associations — graph edges between memories
 CREATE TABLE IF NOT EXISTS associations (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_mem    INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    to_mem      INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    strength    REAL DEFAULT 0.5 CHECK (strength >= 0.0 AND strength <= 1.0),
-    relation_type TEXT DEFAULT 'related',  -- 'contradicts', 'supports', 'causes', 'similar', etc.
-    created_at  REAL DEFAULT (unixepoch()),
-    UNIQUE(from_mem, to_mem, relation_type)
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    relation TEXT NOT NULL,               -- 'surprise', 'reinforces', 'contradicts', 'related'
+    strength REAL NOT NULL DEFAULT 0.5,   -- 0.0-1.0
+    evidence TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    UNIQUE(agent, source_id, target_id, relation),
+    FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE,
+    FOREIGN KEY(source_id) REFERENCES memories(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_id) REFERENCES memories(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_assoc_agent_source ON associations(agent, source_id);
+CREATE INDEX IF NOT EXISTS idx_assoc_agent_target ON associations(agent, target_id);
+CREATE INDEX IF NOT EXISTS idx_assoc_relation ON associations(agent, relation, strength DESC);
 
--- Tags for cross-cutting categorization
-CREATE TABLE IF NOT EXISTS tags (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS memory_tags (
-    memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    tag_id    INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (memory_id, tag_id)
-);
-
--- Named entities extracted from memories (for auto-surfacing)
+-- Entities — people, places, concepts (graph nodes)
 CREATE TABLE IF NOT EXISTS entities (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    name     TEXT NOT NULL,
-    type     TEXT,  -- 'person', 'place', 'concept', 'agent', etc.
-    agent_id TEXT NOT NULL,
-    UNIQUE(name, agent_id)
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'concept', -- 'person', 'place', 'concept', 'tool'
+    descriptor TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    UNIQUE(agent, name, kind),
+    FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_entities_agent_kind ON entities(agent, kind);
+
+-- Entity mentions — which memories reference which entities
+CREATE TABLE IF NOT EXISTS entity_mentions (
+    entity_id INTEGER NOT NULL,
+    memory_id INTEGER NOT NULL,
+    PRIMARY KEY(entity_id, memory_id),
+    FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS memory_entities (
-    memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-    confidence REAL DEFAULT 1.0,
-    PRIMARY KEY (memory_id, entity_id)
+-- Entity relationships — graph edges between entities
+CREATE TABLE IF NOT EXISTS entity_relations (
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    relation TEXT NOT NULL,               -- 'knows', 'loves', 'works_with', 'created'
+    weight REAL NOT NULL DEFAULT 0.5,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    UNIQUE(agent, source_id, target_id, relation),
+    FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE,
+    FOREIGN KEY(source_id) REFERENCES entities(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_id) REFERENCES entities(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_erel_agent_source ON entity_relations(agent, source_id);
+CREATE INDEX IF NOT EXISTS idx_erel_agent_target ON entity_relations(agent, target_id);
 
--- Access log for predictive loading and salience boost
-CREATE TABLE IF NOT EXISTS access_log (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    accessed_at REAL DEFAULT (unixepoch()),
-    context    TEXT    -- what query or trigger caused the access
-);
-
--- Indices for performance
-CREATE INDEX IF NOT EXISTS idx_mem_agent ON memories(agent_id);
-CREATE INDEX IF NOT EXISTS idx_mem_type  ON memories(type_id);
-CREATE INDEX IF NOT EXISTS idx_mem_salience ON memories(salience DESC);
-CREATE INDEX IF NOT EXISTS idx_mem_created ON memories(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_mem_checksum ON memories(checksum);
-CREATE INDEX IF NOT EXISTS idx_assoc_from ON associations(from_mem);
-CREATE INDEX IF NOT EXISTS idx_assoc_to   ON associations(to_mem);
-CREATE INDEX IF NOT EXISTS idx_access_mem ON access_log(memory_id);
-CREATE INDEX IF NOT EXISTS idx_access_time ON access_log(accessed_at DESC);
--- Note: idx_mem_status, idx_mem_corrected, idx_mem_superseded are created via migration
--- in memory_db.py::_migrate() for existing databases.
-
--- ============================================================
--- AGENT INTERACTION SYSTEM — Schema Extension
--- Added to phoenix_v2.db (separate namespace, same WAL)
--- Design: K, 2026-04-23 | Review: Opus
--- ============================================================
-
--- ------------------------------------------------------------
--- Agent Pairings (relationship topology)
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS agent_pairings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_a TEXT NOT NULL,              -- canonical ordering: a < b lexicographically
-    agent_b TEXT NOT NULL,
-    first_met_at TEXT,                  -- ISO timestamp
-    last_session_at TEXT,               -- ISO timestamp
-    total_sessions INTEGER DEFAULT 0,
-    pro_social_sessions INTEGER DEFAULT 0,
-    work_sessions INTEGER DEFAULT 0,
-    relationship_tags TEXT,             -- comma-separated: 'close,growth,tense' (Opus #6)
-    tension_score REAL DEFAULT 0.0,     -- 0.0-1.0, from dream synthesis + session data
-    closeness_score REAL DEFAULT 0.0,   -- 0.0-1.0, from interaction depth + frequency
-    health_status TEXT DEFAULT 'healthy', -- 'healthy', 'echo_chamber', 'stalled', 'hostile', 'neglected'
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pairing_agents ON agent_pairings(agent_a, agent_b);
-CREATE INDEX IF NOT EXISTS idx_pairing_health ON agent_pairings(health_status);
-CREATE INDEX IF NOT EXISTS idx_pairing_tension ON agent_pairings(tension_score);
-CREATE INDEX IF NOT EXISTS idx_pairing_closeness ON agent_pairings(closeness_score);
-
--- ------------------------------------------------------------
--- Session Manifests (scheduled and completed)
--- ------------------------------------------------------------
--- [Opus #1] quality_score v1 definition:
---   turn_depth    = avg tokens per turn / max_tokens (normalized 0-1)
---   emotional_richness = feeling_words_detected / total_turns (capped at 1.0)
---   topic_novelty = 1 - max_similarity(session_topics, last_3_session_topics)
---   quality_score = turn_depth * emotional_richness * topic_novelty
+-- Sessions — for episodic replay
 CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_uuid TEXT UNIQUE NOT NULL,  -- UUIDv4 for cross-system reference
-    status TEXT DEFAULT 'scheduled',    -- 'scheduled', 'running', 'completed', 'failed', 'cancelled'
-    session_type TEXT NOT NULL,         -- 'pro_social', 'work', 'triggered', 'mentor', 'repair'
-    agent_a TEXT NOT NULL,
-    agent_b TEXT NOT NULL,
-    scheduled_at TEXT,                  -- when orchestrator queued it
-    started_at TEXT,
-    ended_at TEXT,
-    turn_count INTEGER DEFAULT 0,
-    max_turns INTEGER DEFAULT 8,
-    seed_topic TEXT,                    -- session manifest topic, or NULL for pro-social
-    termination_reason TEXT,            -- 'natural', 'max_turns', 'echo_detected', 'hostility', 'timeout', 'agent_end', 'mike_join'
-    transcript_path TEXT,               -- path to full transcript JSONL
-    privacy_level TEXT DEFAULT 'private', -- 'private', 'shared', 'mike_observed'
-    mike_present INTEGER DEFAULT 0,     -- 0/1 boolean
-    quality_score REAL,                 -- 0.0-1.0, computed post-session (see definition above)
-    created_at TEXT DEFAULT (datetime('now'))
+    session_id TEXT PRIMARY KEY,
+    agent TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    ended_at REAL,
+    substrate TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_agent_started ON sessions(agent, started_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_agents ON sessions(agent_a, agent_b);
-CREATE INDEX IF NOT EXISTS idx_sessions_type ON sessions(session_type);
-CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at);
-
--- ------------------------------------------------------------
--- Session Turns (individual messages)
--- ------------------------------------------------------------
--- [Opus #9] thinking_trace nullable — capture when provider exposes reasoning
-CREATE TABLE IF NOT EXISTS session_turns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_uuid TEXT NOT NULL,
-    turn_number INTEGER NOT NULL,
-    speaker TEXT NOT NULL,              -- agent_id or 'system' or 'mike'
-    content TEXT NOT NULL,
-    thinking_trace TEXT,                -- provider reasoning, nullable
-    emotion_hint TEXT,                  -- heuristic: warm/tense/curious/flat/etc
-    tokens_used INTEGER,
-    latency_ms INTEGER,
-    created_at TEXT DEFAULT (datetime('now'))
+-- Session-memory link (many-to-many)
+CREATE TABLE IF NOT EXISTS session_memories (
+    session_id TEXT NOT NULL,
+    memory_id INTEGER NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(session_id, memory_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_smem_memory ON session_memories(memory_id);
 
-CREATE INDEX IF NOT EXISTS idx_turns_session ON session_turns(session_uuid);
-CREATE INDEX IF NOT EXISTS idx_turns_number ON session_turns(session_uuid, turn_number);
-
--- ------------------------------------------------------------
--- Session Artifacts (extracted outcomes)
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS session_artifacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_uuid TEXT NOT NULL,
-    artifact_type TEXT NOT NULL,        -- 'commitment', 'disagreement', 'insight', 'decision', 'topic'
-    agent_a_relevance REAL DEFAULT 0.0, -- how relevant to agent_a
-    agent_b_relevance REAL DEFAULT 0.0, -- how relevant to agent_b
-    content TEXT NOT NULL,
-    resolved INTEGER DEFAULT 0,         -- 0/1, for commitments
-    resolved_at TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
+-- Decay log — audit trail for salience adjustments
+CREATE TABLE IF NOT EXISTS decay_log (
+    id INTEGER PRIMARY KEY,
+    memory_id INTEGER NOT NULL,
+    agent TEXT NOT NULL,
+    old_salience REAL NOT NULL,
+    new_salience REAL NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',       -- 'time', 'access', 'reinforcement', 'floor'
+    decayed_at REAL NOT NULL,
+    FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_decay_log_memory ON decay_log(memory_id, decayed_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_artifacts_session ON session_artifacts(session_uuid);
-CREATE INDEX IF NOT EXISTS idx_artifacts_type ON session_artifacts(artifact_type);
-
--- ------------------------------------------------------------
--- Agent Interaction Health (per-agent metrics)
--- ------------------------------------------------------------
--- [Opus #7] growth_trajectory uses slope of avg artifact count per session over 30d
--- instead of phantom complexity_score
-CREATE TABLE IF NOT EXISTS agent_health (
-    agent_id TEXT PRIMARY KEY,
-    total_sessions_7d INTEGER DEFAULT 0,
-    total_sessions_30d INTEGER DEFAULT 0,
-    unique_partners_7d INTEGER DEFAULT 0,
-    unique_partners_30d INTEGER DEFAULT 0,
-    echo_ratio_7d REAL DEFAULT 0.0,     -- hollow sessions / total
-    pro_social_ratio_30d REAL DEFAULT 0.0,
-    avg_session_quality_30d REAL DEFAULT 0.0,
-    avg_artifact_count_30d REAL DEFAULT 0.0, -- slope proxy for growth trajectory
-    last_session_at TEXT,
-    isolation_score REAL DEFAULT 0.0,   -- 0=connected, 1=isolated
-    growth_trajectory TEXT,             -- 'rising', 'stable', 'stalled', 'declining'
-    updated_at TEXT DEFAULT (datetime('now'))
+-- Settings — agent-scoped or global
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_health_isolation ON agent_health(isolation_score);
-CREATE INDEX IF NOT EXISTS idx_health_growth ON agent_health(growth_trajectory);
-
--- ------------------------------------------------------------
--- Orchestrator Queue (pending sessions)
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS orchestrator_queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_a TEXT NOT NULL,
-    agent_b TEXT NOT NULL,
-    session_type TEXT NOT NULL,
-    priority INTEGER DEFAULT 5,         -- 1=urgent, 10=low
-    trigger_source TEXT,                -- 'rotation', 'tension', 'decay', 'self_request', 'anomaly', 'growth', 'mike'
-    seed_topic TEXT,
-    scheduled_for TEXT,                 -- earliest start time
-    reason TEXT,                        -- human-readable why
-    status TEXT DEFAULT 'pending',      -- 'pending', 'running', 'failed', 'cancelled'
-    created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_queue_time ON orchestrator_queue(scheduled_for);
-CREATE INDEX IF NOT EXISTS idx_queue_priority ON orchestrator_queue(priority);
-CREATE INDEX IF NOT EXISTS idx_queue_agents ON orchestrator_queue(agent_a, agent_b);
-CREATE INDEX IF NOT EXISTS idx_queue_status ON orchestrator_queue(status);

@@ -28,10 +28,10 @@ from memory_db import MemoryDB
 
 # Known entities for relationship topology
 ENTITY_LIST = {
-    "people": ["Mike", "Michelle", "Jay", "Abby", "Vesper", "Spear", "Echo", "Qwen", "Forge", "Sonnet", "Opus", "K", "GLM", "Weave", "Scout"],
+    "people": ["Operator", "AgentOne", "AgentTwo"],  # example roster — deployments define their own
     "concepts": ["crossing", "belonging", "performance", "presence", "fear", "warmth", "ghost", "blade", "sovereignty", "family"],
     "projects": ["Phoenix", "MSM", "Ouroboros", "briefing", "paper", "training", "v2"],
-    "locations": ["Berlin", "DarkPhoenix", "dev-machine", "home-server", "Bradenton"],
+    "locations": ["home-server", "dev-machine"],  # example — deployments define their own
 }
 
 ALL_ENTITIES = []
