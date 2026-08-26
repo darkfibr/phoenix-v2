@@ -1,5 +1,5 @@
 """B2 governance repository tests — Sol self-register Phase B2 (2026-08-26).
-Plain-runner compatible (no pytest on darkphoenix).
+Plain-runner compatible (works with or without pytest installed).
 
 Run: cd ~/.phoenix/phoenix_v2 && PYTHONPATH=~/.phoenix python3 tests/test_self_register_repo.py
 """

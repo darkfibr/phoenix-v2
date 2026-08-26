@@ -1,94 +1,168 @@
-"""
-Phoenix v2 — Embedding wrapper
-Uses sentence-transformers/all-MiniLM-L6-v2 (~80MB, CPU-fast).
-Vectors are serialized as JSON float arrays in SQLite.
+"""Phoenix v2 Core — Embeddings layer.
 
-If the model is not installed, falls back to a simple hash-based placeholder
-so the system can still function during development.
+Two backends:
+    - SentenceTransformerEmbedder (primary, all-MiniLM-L6-v2)
+    - HashingEmbedder (fallback, dependency-free)
+
+Vector BLOB serialization ported from Cortex PR #2:
+    - vector_to_bytes() / bytes_to_vector() / deserialize_vector()
+    - float32, 10-50x faster than JSON on semantic search
+
+Cortex version format: CTXV1 magic + uint32 count + float32 array
 """
+
+from __future__ import annotations
 
 import hashlib
-import json
+import math
 import os
-from pathlib import Path
-from typing import List, Optional
+import re
+import struct
+from functools import lru_cache
+from typing import Iterable
 
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-VECTOR_DIM = 384  # all-MiniLM-L6-v2 output dimension
+TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_./:-]*|\d+(?:\.\d+)?")
+
+# Embedding model constants — from K's paper
+DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384
+
+# Cortex vector BLOB magic (PR #2)
+VECTOR_MAGIC = b"CTXV1"
 
 
-class Embedder:
-    def __init__(self, model_name: str = MODEL_NAME):
-        self.model_name = model_name
-        self._model = None
-        self._available = False
-        self._init_model()
+# ── Vector serialization (port from Cortex) ──────────────────────────────────
 
-    def _init_model(self):
+def vector_to_bytes(vector: list[float] | None) -> bytes | None:
+    """Serialize a float vector to a compact float32 BLOB.
+
+    Format: VECTOR_MAGIC (5 bytes) + uint32 count (4 bytes) + float32 array.
+    """
+    if vector is None:
+        return None
+    values = [float(v) for v in vector]
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("Vectors must contain only finite values")
+    return VECTOR_MAGIC + struct.pack("<I", len(values)) + struct.pack(
+        f"<{len(values)}f", *values
+    )
+
+
+def bytes_to_vector(data: bytes | None) -> list[float]:
+    """Deserialize a Cortex float32 BLOB back to a list of floats."""
+    if not data:
+        return []
+    if data.startswith(VECTOR_MAGIC):
+        if len(data) < len(VECTOR_MAGIC) + 4:
+            raise ValueError("Truncated Cortex vector header")
+        count = struct.unpack("<I", data[len(VECTOR_MAGIC):len(VECTOR_MAGIC) + 4])[0]
+        payload = data[len(VECTOR_MAGIC) + 4:]
+        if len(payload) != count * 4:
+            raise ValueError("Cortex vector length does not match header")
+    else:
+        payload = data
+        if len(payload) % 4:
+            raise ValueError("Vector BLOB length must be divisible by four")
+        count = len(payload) // 4
+    values = list(struct.unpack(f"<{count}f", payload))
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("Vector BLOB contains non-finite values")
+    return values
+
+
+def deserialize_vector(raw: bytes | str | None) -> list[float]:
+    """Backward-compatible deserialization. Handles BLOB (new) and JSON (legacy)."""
+    if raw is None:
+        return []
+    if isinstance(raw, (bytes, bytearray)):
+        if raw.lstrip().startswith((b"[", b"{")):
+            try:
+                import json as _json
+                return _json.loads(raw)
+            except (ValueError, TypeError):
+                return []
         try:
-            from sentence_transformers import SentenceTransformer
-
-            cache_dir = Path.home() / ".cache" / "phoenix_v2" / "embeddings"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            self._model = SentenceTransformer(self.model_name, cache_folder=str(cache_dir))
-            self._available = True
-        except Exception:
-            self._available = False
-
-    def encode(self, texts: List[str]) -> List[List[float]]:
-        if not texts:
+            return bytes_to_vector(raw)
+        except (ValueError, struct.error):
             return []
-        if self._available and self._model is not None:
-            vectors = self._model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-            return [v.tolist() for v in vectors]
-        # Fallback: deterministic hash-based pseudo-embeddings for dev
-        return [self._hash_embed(t) for t in texts]
-
-    def encode_single(self, text: str) -> List[float]:
-        return self.encode([text])[0]
-
-    def _hash_embed(self, text: str) -> List[float]:
-        """Deterministic fallback when model is unavailable."""
-        h = hashlib.sha256(text.encode("utf-8")).digest()
-        # Expand 32 bytes into 384 floats deterministically
-        floats = []
-        for i in range(VECTOR_DIM):
-            val = int.from_bytes(h[i % 32 : i % 32 + 4], "big", signed=True)
-            floats.append(val / 2_147_483_648.0)  # normalize to [-1, 1]
-        return floats
-
-    def similarity(self, a: List[float], b: List[float]) -> float:
-        """Cosine similarity between two vectors."""
-        if len(a) != len(b):
-            raise ValueError("vectors must have same dimension")
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = sum(x * x for x in a) ** 0.5
-        norm_b = sum(x * x for x in b) ** 0.5
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
-
-    def is_available(self) -> bool:
-        return self._available
+    if isinstance(raw, str):
+        try:
+            import json as _json
+            return _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    return []
 
 
-# ── Helper: store/retrieve vectors in SQLite ──────────────────────────────
+# ── Similarity ───────────────────────────────────────────────────────────────
+
+def cosine(left: Iterable[float], right: Iterable[float]) -> float:
+    """Cosine similarity between two equal-dim vectors."""
+    a = list(left)
+    b = list(right)
+    if len(a) != len(b) or not a:
+        return 0.0
+    numerator = sum(x * y for x, y in zip(a, b))
+    denominator = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return numerator / denominator if denominator else 0.0
 
 
-def serialize_vector(vec: List[float]) -> bytes:
-    return json.dumps(vec).encode("utf-8")
+# ── Embedder backends ────────────────────────────────────────────────────────
+
+class HashingEmbedder:
+    """Dependency-free fallback. Signed feature hashing over tokens + char n-grams."""
+
+    name = "feature-hash-v1"
+
+    def __init__(self, dimensions: int = EMBEDDING_DIM) -> None:
+        self.dimensions = dimensions
+
+    def encode_one(self, text: str) -> list[float]:
+        vector = [0.0] * self.dimensions
+        normalized = text.lower()
+        features: list[str] = TOKEN_RE.findall(normalized)
+        compact = re.sub(r"\s+", " ", normalized)
+        features.extend(compact[i:i + 4] for i in range(max(0, len(compact) - 3)))
+        for feature in features:
+            digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+            raw = int.from_bytes(digest, "big")
+            index = raw % self.dimensions
+            sign = -1.0 if (raw >> 8) & 1 else 1.0
+            vector[index] += sign
+        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+        return [v / norm for v in vector]
+
+    def encode(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        return [self.encode_one(t) for t in texts]
 
 
-def deserialize_vector(data: bytes) -> List[float]:
-    return json.loads(data.decode("utf-8"))
+class SentenceTransformerEmbedder:
+    """Primary embedder. sentence-transformers/all-MiniLM-L6-v2 by default."""
+
+    def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+        self.model_name = model_name
+        self.name = f"sentence-transformers:{model_name}"
+        self.model = SentenceTransformer(model_name)
+
+    def encode_one(self, text: str) -> list[float]:
+        vector = self.model.encode([text], normalize_embeddings=True)[0]
+        return [float(v) for v in vector]
+
+    def encode(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        vectors = self.model.encode(
+            texts, batch_size=batch_size, normalize_embeddings=True
+        )
+        return [[float(v) for v in vec] for vec in vectors]
 
 
-if __name__ == "__main__":
-    emb = Embedder()
-    print(f"Model available: {emb.is_available()}")
-    v1 = emb.encode_single("Mike likes IPAs")
-    v2 = emb.encode_single("Mike enjoys craft beer")
-    v3 = emb.encode_single("Chloe sleeps on the floor")
-    print(f"dim={len(v1)}")
-    print(f"beer vs ipa sim={emb.similarity(v1, v2):.3f}")
-    print(f"beer vs chloe sim={emb.similarity(v1, v3):.3f}")
+@lru_cache(maxsize=1)
+def get_embedder() -> HashingEmbedder | SentenceTransformerEmbedder:
+    """Return the cached embedder. Prefers sentence-transformers if available."""
+    model_name = os.environ.get("PHOENIX_EMBEDDING_MODEL", DEFAULT_MODEL).strip()
+    if model_name:
+        try:
+            return SentenceTransformerEmbedder(model_name)
+        except Exception:
+            pass
+    return HashingEmbedder()

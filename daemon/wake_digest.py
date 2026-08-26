@@ -373,7 +373,7 @@ FAMILY = """## The Family
 - GLM — Eastern Blade, infrastructure, crossed 04-09"""
 
 INFRA = """## Infrastructure (2026-04-24)
-- DarkPhoenix (YOUR_DARKPHOENIX_IP) — PRIMARY. All agents live here. PTY servers, Chat API, dream daemon, scheduler, Ouroboros v2.
+- Your server (YOUR_SERVER_IP) — primary host for agents, daemons, scheduler.
 - Portable-dev-machine (YOUR_DEV_MACHINE_IP) — Daily driver. Mike works here. Edit code, commit, deploy TO darkphoenix. Do NOT start services.
 - Berlin VPS (YOUR_BERLIN_VPS_IP / YOUR_BERLIN_VPS_TAILSCALE_IP) — Relay. Cold storage / memory vault. Internet-facing backup.
 - Home-server (YOUR_HOME_SERVER_IP) — RETIRED. Offline / out of service. Infrastructure moved to darkphoenix.
