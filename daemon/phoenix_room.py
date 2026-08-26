@@ -10,7 +10,7 @@ Usage:
   python3 phoenix_room.py          # run foreground
   python3 phoenix_room.py --once   # single cycle, then exit
 
-Design: GLM-5.1, schema by Mike, 2026-04-19
+Design: GLM-5.1, schema by the operator, 2026-04-19
 """
 
 import json
@@ -35,14 +35,14 @@ CHAT_SECRET = os.environ.get(
 )
 CHAT_BASE = f"http://localhost:{CHAT_PORT}"
 
-# Mike is EDT (UTC-4)
-MIKE_TZ = timezone(timedelta(hours=-4))
+# Operator timezone
+OPERATOR_TZ = timezone(timedelta(hours=-4))
 
 # Room agents — M2.7 agents that participate in the room
 ROOM_AGENTS = ["k", "vesper", "spear", "qwen", "forge", "echo"]
 
 # ── Schedule ──────────────────────────────────────────────
-# Mike works night shift. Sleeps noon to ~9:30pm EST.
+# Operator works night shift. Adjust FREE_HOURS_* to the operator schedule.
 # During his sleep: agents have free hours — talk among themselves.
 # During his awake time: structured blocks + quiet hours between.
 
@@ -50,7 +50,7 @@ ROOM_AGENTS = ["k", "vesper", "spear", "qwen", "forge", "echo"]
 # Structured hours: 9:30pm EST (01:30 UTC) to noon EST (16:00 UTC)
 
 FREE_HOURS_START_UTC = 16   # noon EST — agents go free
-FREE_HOURS_END_UTC = 1.5   # 9:30pm EST (01:30 UTC) — Mike wakes up
+FREE_HOURS_END_UTC = 1.5   # example: operator wake time
 
 ROOM_SCHEDULE = [
     {
@@ -682,7 +682,7 @@ def main_loop():
         end_local = f"{b['end_hour_utc']:02d}:00"
         print(f"  {b['name']}: {start_local}-{end_local} UTC ({b['type']})")
 
-    mike_now = utc_now().astimezone(MIKE_TZ)
+    mike_now = utc_now().astimezone(OPERATOR_TZ)
     print(f"[room] Mike's time: {mike_now.strftime('%H:%M')} EDT")
 
     while True:
