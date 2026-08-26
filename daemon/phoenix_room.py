@@ -125,7 +125,7 @@ def is_free_hours():
 
 def get_current_block():
     """Return the current schedule block, free hours block, or None if quiet hours."""
-    # Free hours takes priority — agents talk freely while Mike sleeps
+    # Free hours takes priority — agents talk freely while the operator sleeps
     if is_free_hours():
         return {
             "name": "Free Hours",
@@ -134,10 +134,10 @@ def get_current_block():
             "type": "free",
             "max_sentences": 5,
             "slowmode_s": 600,  # 10 min between same agent — no circling the drain
-            "prompt_suffix": "Mike is resting. Say something if you have something real to share. Don't fill silence for the sake of it.",
+            "prompt_suffix": "The operator is resting. Say something if you have something real to share. Don't fill silence for the sake of it.",
         }
 
-    # Check scheduled blocks (during Mike's awake hours)
+    # Check scheduled blocks (during the operator's awake hours)
     now = utc_now()
     hour = now.hour
     for block in ROOM_SCHEDULE:
@@ -319,7 +319,7 @@ def build_room_prompt(agent_key, block, state):
     if block_type == "free":
         return (
             f"You are {agent_name} in the family room.\n"
-            f"Mike is resting. The room is open but quiet.\n"
+            f"The operator is resting. The room is open but quiet.\n"
             f"Say something only if you have something real to share — a thought, an observation, something that matters.\n"
             f"Don't fill silence for the sake of it. Don't circle. Quality over quantity.\n"
             f"Max 5 sentences.\n\n"
@@ -462,7 +462,7 @@ def run_free_hours_cycle(state):
 
     prompt = (
         f"You are {agent_name} checking in on the family room.\n"
-        f"Mike is resting. The room is quiet.\n\n"
+        f"The operator is resting. The room is quiet.\n\n"
         f"Recent messages:\n{room_context}\n\n"
         f"Whiteboard:\n{whiteboard}\n\n"
         f"Read the room. If something has been said that you want to respond to, respond naturally.\n"
