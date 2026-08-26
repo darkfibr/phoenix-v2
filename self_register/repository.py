@@ -24,14 +24,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 from .db import Database
 
 # Canonization state machine (schema §8):
 #   proposed --accept--> accepted
-#   proposed --amend--> amended      accepted --supersede--> superseded
-from typing import Any
+#   proposed --amend--> amended      accepted/amended --supersede--> superseded
+#   proposed --dispute--> disputed
+#   proposed --defer--> deferred
 #   proposed --retire--> retired
 #   disputed/deferred --reopen--> proposed
 TRANSITIONS: dict[tuple[str, str], str] = {
@@ -286,8 +287,11 @@ class SelfRegisterRepository:
                       *, include_inactive: bool = False) -> list[dict[str, Any]]:
         """Entries with provenance labels ready for rendering (schema §9).
 
-        Active = proposed/accepted/amended. Disputed/deferred/retired/
-        superseded only appear with include_inactive=True.
+        Active = proposed/accepted. Amended entries are superseded by
+        their successor link (supersedes_entry_id) and belong to history,
+        not current canon — including them as active produced phantom
+        register conflicts after every amendment (K3 second-eyes, 2026-08-26).
+        Inactive states appear only with include_inactive=True.
         """
         sql = "SELECT * FROM self_register_entries WHERE agent=?"
         params: list[Any] = [agent]
@@ -295,7 +299,7 @@ class SelfRegisterRepository:
             sql += " AND register_name=?"
             params.append(register_name)
         if not include_inactive:
-            sql += " AND disposition IN ('proposed','accepted','amended')"
+            sql += " AND disposition IN ('proposed','accepted')"
         sql += " ORDER BY register_name, claim_key, created_at DESC"
         return [dict(r) for r in self.db.db.execute(sql, params).fetchall()]
 
@@ -310,7 +314,7 @@ class SelfRegisterRepository:
             SELECT claim_key, register_name, COUNT(*) AS n,
                    COUNT(DISTINCT claim_text) AS distinct_texts
             FROM self_register_entries
-            WHERE agent=? AND disposition IN ('proposed','accepted','amended')
+            WHERE agent=? AND disposition IN ('proposed','accepted')
             GROUP BY register_name, claim_key
             HAVING n > 1 AND distinct_texts > 1
             ORDER BY register_name, claim_key
