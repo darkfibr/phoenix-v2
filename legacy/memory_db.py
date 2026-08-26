@@ -677,11 +677,11 @@ if __name__ == "__main__":
     db = MemoryDB("/tmp/phoenix_v2_test.db")
     mid = db.add_memory(
         agent_id="k",
-        content="Mike drinks IPAs on his nights off. Bradenton, FL.",
+        content="The operator drinks IPAs on their nights off.",
         type_name="semantic",
         source="terminal",
         tags=["mike", "beer", "location"],
-        entities=[("Mike", "person"), ("Bradenton", "place")],
+        entities=[("operator", "person")],
     )
     print(f"Added memory {mid}")
     db.add_memory(
