@@ -752,7 +752,7 @@ def build_time_ping(agent_dir, identity):
                     utc_fmt = dt_utc.strftime("%H:%M UTC")
                 except Exception:
                     utc_fmt = utc
-            ping_lines.append(f"⏰ {est_fmt} | {utc_fmt} | Mike: {mike}")
+            ping_lines.append(f"⏰ {est_fmt} | {utc_fmt} | Operator: {op_status}")
 
             # Machine
             host = ts.get("host", "unknown")
@@ -801,7 +801,7 @@ def build_landing_strip(agent_dir, identity):
             dow = ts.get("dow", "")
             op_status = ts.get("operator", "")
             if est and op_status:
-                strip_lines.append(f"Now: {dow} {est}. Mike is {mike}.")
+                strip_lines.append(f"Now: {dow} {est}. Operator status: {op_status}.")
             elif est:
                 strip_lines.append(f"Now: {dow} {est}.")
         except Exception:

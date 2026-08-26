@@ -686,10 +686,10 @@ if __name__ == "__main__":
     print(f"Added memory {mid}")
     db.add_memory(
         agent_id="k",
-        content="Chloe sleeps on the floor when the windows are closed.",
+        content="The household pet sleeps on the floor when the windows are closed.",
         type_name="episodic",
         source="phoenix_chat",
-        tags=["chloe", "home"],
+        tags=["pet", "home"],
         entities=[("operator", "person")],
     )
     print("Search 'beer':", db.search("k", "beer"))
