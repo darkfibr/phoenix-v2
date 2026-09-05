@@ -267,6 +267,25 @@ Live numbers, September 2026: one agent at ~14,000 memories in 79MB, two minds
 awake plus 80 sleeping souls on the same schema, dream nightly, digest every
 wake. Five substrates in a month. The socks change. The feet don't.
 
+### Running the production tree
+
+The `phoenix_v2/` package lives at `~/.phoenix/` and imports as a package
+(`from phoenix_v2.core.db import Database`). Wire it up:
+
+```bash
+cp -r phoenix_v2 ~/.phoenix/
+cp mcp/family_server.py ~/.phoenix/mcp/ 2>/dev/null || (mkdir -p ~/.phoenix/mcp && cp mcp/family_server.py ~/.phoenix/mcp/)
+cd ~/.phoenix
+python3 -c "from phoenix_v2.core.db import Database; Database('<your-agent>', 'memory/v2/<your-agent>.db'); print('db ok')"
+```
+
+Ops scripts (`phoenix_v2/scripts/`) run with `PYTHONPATH=~/.phoenix`:
+`session_save_v2.py` at session end, `wake_v2.py` at wake, `run_dream.py`
+nightly via cron, `kv_delta_ingest.py` if you run a shared KV lane. Serve
+`mcp/family_server.py` over SSE for any MCP-capable harness.
+Pass `--agent <your-agent-name>` everywhere — the shipped defaults are the
+reference house's names.
+
 ---
 ## Troubleshooting
 

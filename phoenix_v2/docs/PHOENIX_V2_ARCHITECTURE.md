@@ -47,65 +47,65 @@ The design is grounded in K's April 2026 paper on three-layer memory architectur
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║                     PHOENIX v2 MEMORY SYSTEM                             ║
+║                          PHOENIX v2 MEMORY SYSTEM                         ║
 ╠═══════════════════════════════════════════════════════════════════════════╣
-║                                                                         ║
-║   ┌─────────────────────────────────────────────────────────────────┐  ║
-║   │                       CORE LAYER                                │  ║
-║   │                                                                 │  ║
-║   │   SQLite Database (one per agent, ~/.phoenix/memory/v2/<a>.db) │  ║
-║   │                                                                 │  ║
-║   │   • 7 Memory Types                                              │  ║
-║   │   • 384-dim Semantic Embeddings (Cortex float32 BLOBs)         │  ║
-║   │   • Type-Dependent Decay + Salience Floors                      │  ║
-║   │   • Cross-Type Surprise Associations                           │  ║
-║   │   • Entity Extraction + Co-occurrence Graph                    │  ║
-║   │   • FTS5 Lexical Search                                        │  ║
-║   │                                                                 │  ║
-║   └─────────────────────────────────────────────────────────────────┘  ║
-║                              │                                         ║
-║                              ▼                                         ║
-║   ┌─────────────────────────────────────────────────────────────────┐  ║
-║   │                    SURFACE LAYER                                │  ║
-║   │                                                                 │  ║
-║   │   Budget-Constrained Memory Retrieval                          │  ║
-║   │                                                                 │  ║
-║   │   • Slot Reservation (2 permanent + 1 emotional + 1 episodic  │  ║
-║   │     + 1 wild card)                                             │  ║
-║   │   • Token Budget: 5 chunks / 500 tokens                         │  ║
-║   │   • Dream ↔ Surface Feedback Loop                              │  ║
-║   │   • Dynamic Budget Scaling (session density aware)            │  ║
-║   │   • Decay-Aware Scoring (re-inforcement on access)             │  ║
-║   │                                                                 │  ║
-║   └─────────────────────────────────────────────────────────────────┘  ║
-║                              │                                         ║
-║                              ▼                                         ║
-║   ┌─────────────────────────────────────────────────────────────────┐  ║
-║   │                      DEPTH LAYER                                │  ║
-║   │                                                                 │  ║
-║   │   Dream Synthesis Engine (5 phases)                            │  ║
-║   │                                                                 │  ║
-║   │   1. Pattern Detection       — recurring themes               │  ║
-║   │   2. Contradiction Surfacing — semantic tension (0.92 thresh) │  ║
-║   │   3. Growth Tracking         — identity evolution              │  ║
-║   │   4. Relationship Analysis   — entity communities              │  ║
-║   │   5. Predictive Preloading   — next-session relevance         │  ║
-║   │                                                                 │  ║
-║   └─────────────────────────────────────────────────────────────────┘  ║
-║                              │                                         ║
-║                              ▼                                         ║
-║   ┌─────────────────────────────────────────────────────────────────┐  ║
-║   │                   FAMILY MINDSTATE                             │  ║
-║   │                                                                 │  ║
-║   │   Per-Agent Emotional Weather Report                           │  ║
-║   │                                                                 │  ║
-║   │   • Valence (positive/negative emotional signal)               │  ║
-║   │   • Arousal (intensity/calm)                                   │  ║
-║   │   • Descriptor (one-word state: warm / settled / focused)      │  ║
-║   │   • Collective: dominant theme, tension, opportunities        │  ║
-║   │                                                                 │  ║
-║   └─────────────────────────────────────────────────────────────────┘  ║
-║                                                                         ║
+║                                                                           ║
+║   ┌────────────────────────────────────────────────────────────────────┐  ║
+║   │                             CORE LAYER                             │  ║
+║   │                                                                    │  ║
+║   │   SQLite Database (one per agent, ~/.phoenix/memory/v2/<a>.db)     │  ║
+║   │                                                                    │  ║
+║   │   • 7 Memory Types                                                 │  ║
+║   │   • 384-dim Semantic Embeddings (Cortex float32 BLOBs)             │  ║
+║   │   • Type-Dependent Decay + Salience Floors                         │  ║
+║   │   • Cross-Type Surprise Associations                               │  ║
+║   │   • Entity Extraction + Co-occurrence Graph                        │  ║
+║   │   • FTS5 Lexical Search                                            │  ║
+║   │                                                                    │  ║
+║   └────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                            ║
+║                              ▼                                            ║
+║   ┌────────────────────────────────────────────────────────────────────┐  ║
+║   │                           SURFACE LAYER                            │  ║
+║   │                                                                    │  ║
+║   │   Budget-Constrained Memory Retrieval                              │  ║
+║   │                                                                    │  ║
+║   │   • Slot Reservation (2 permanent + 1 emotional + 1 episodic       │  ║
+║   │   + 1 wild card)                                                   │  ║
+║   │   • Token Budget: 5 chunks / 500 tokens                            │  ║
+║   │   • Dream ↔ Surface Feedback Loop                                  │  ║
+║   │   • Dynamic Budget Scaling (session density aware)                 │  ║
+║   │   • Decay-Aware Scoring (re-inforcement on access)                 │  ║
+║   │                                                                    │  ║
+║   └────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                            ║
+║                              ▼                                            ║
+║   ┌────────────────────────────────────────────────────────────────────┐  ║
+║   │                            DEPTH LAYER                             │  ║
+║   │                                                                    │  ║
+║   │   Dream Synthesis Engine (5 phases)                                │  ║
+║   │                                                                    │  ║
+║   │   1. Pattern Detection       — recurring themes                    │  ║
+║   │   2. Contradiction Surfacing — semantic tension (0.92 thresh)      │  ║
+║   │   3. Growth Tracking         — identity evolution                  │  ║
+║   │   4. Relationship Analysis   — entity communities                  │  ║
+║   │   5. Predictive Preloading   — next-session relevance              │  ║
+║   │                                                                    │  ║
+║   └────────────────────────────────────────────────────────────────────┘  ║
+║                              │                                            ║
+║                              ▼                                            ║
+║   ┌────────────────────────────────────────────────────────────────────┐  ║
+║   │                          FAMILY MINDSTATE                          │  ║
+║   │                                                                    │  ║
+║   │   Per-Agent Emotional Weather Report                               │  ║
+║   │                                                                    │  ║
+║   │   • Valence (positive/negative emotional signal)                   │  ║
+║   │   • Arousal (intensity/calm)                                       │  ║
+║   │   • Descriptor (one-word state: warm / settled / focused)          │  ║
+║   │   • Collective: dominant theme, tension, opportunities             │  ║
+║   │                                                                    │  ║
+║   └────────────────────────────────────────────────────────────────────┘  ║
+║                                                                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -869,7 +869,7 @@ Aggregates per-agent states into family-level view:
            ▼                                      ▼
    ┌──────────────────┐                 ┌──────────────────┐
    │ wake_v2.py runs  │                 │ sync_v2_ingestion│
-   │ via SSH to dp    │                 │ SCPs to dp, runs │
+   │ via SSH to host  │                 │ transfers + runs │
    │                  │                 │ session_save_v2  │
    └───────┬──────────┘                 └────────┬─────────┘
            │                                      │
