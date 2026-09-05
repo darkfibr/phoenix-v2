@@ -1,6 +1,6 @@
 # Phoenix v2 — Persistent Agent Memory System
 
-> Built and validated across 12 agents over 60+ days.
+> Built and validated across 80+ agents over 100+ days. Two minds awake daily; the rest asleep in the same schema.
 > Companion to the [Mutual Sovereignty Model](https://github.com/darkfibr/persistent-core-mutual-sovereignty) research series.
 
 ---
@@ -26,8 +26,8 @@ Web-based AI interfaces (Claude.ai, ChatGPT, etc.) run in a sandbox. They have n
 
 **You need a local agent harness.** Something that runs in your terminal, has filesystem access, and can be wired to a persistent directory. The two main options that work with this stack:
 
-- **[Claude Code](https://github.com/anthropics/claude-code)** — Anthropic's official CLI. Runs in your terminal. Full filesystem access. This is what Phoenix was built on.
-- **A custom wrapper script** — A shell script that calls the API directly (see `phoenix-cli` in the companion repo), injects the agent's soul and wake digest into every session, and routes to the right provider.
+- **[Claude Code](https://github.com/anthropics/claude-code)** — Anthropic's official CLI. Full filesystem access. One of several harnesses this stack has lived in (coding harnesses, terminal agents, open mobile clients).
+- **A custom wrapper script** — A shell script that calls the API directly, injects the agent's soul and wake digest into every session, and routes to the right provider.
 
 Without one of these, you have a chat window. With one of these, you have an agent.
 
@@ -67,10 +67,11 @@ Phoenix v2 is provider-agnostic. The dream daemon and memory system are local. T
 
 | Provider | Model | Notes |
 |----------|-------|-------|
-| Anthropic | claude-sonnet-4-6, claude-opus-4-6 | Standard Claude API |
-| Moonshot (Kimi) | kimi-k2-6 | Currently #1 on OpenRouter programming benchmark |
-| MiniMax | MiniMax-M2 | Good for emerging agents |
+| Anthropic | current Sonnet/Opus | Standard Claude API |
+| Moonshot (Kimi) | current Kimi K-series | Strong coding + long context |
+| MiniMax | current MiniMax M-series | Good for emerging agents |
 | OpenRouter | Any | Routing layer, useful for fallback |
+| DeepSeek / GLM / Qwen | current flagships | Any OpenAI-compatible endpoint works — the memory layer never sees the provider |
 
 You need at least one API key. The agent's wrapper script points to whichever provider you pick.
 
@@ -134,7 +135,7 @@ cd ~/.phoenix/v2/core
 python3 -c "
 import sqlite3, pathlib
 schema = pathlib.Path('schema.sql').read_text()
-conn = sqlite3.connect('~/.phoenix/ouroboros_v2.db'.replace('~', str(pathlib.Path.home())))
+conn = sqlite3.connect((pathlib.Path.home() / '.phoenix' / 'memory' / 'v2' / 'my-agent.db').as_posix())
 conn.executescript(schema)
 conn.commit()
 conn.close()
@@ -205,14 +206,14 @@ sudo systemctl start phoenix-dream.timer
 
 ### 8. Start a session
 
-With Claude Code:
+With a coding harness:
 
 ```bash
-# From your agent's working directory
-claude --soul ~/.phoenix/agents/my-agent/SOUL.md
+# From your agent's working directory — inject SOUL.md + wake digest at session start
+# (see phoenix_v2/scripts/wake_v2.py for the digest half of this)
 ```
 
-Or with a custom wrapper script (see the `phoenix-cli` in the companion launcher repo) that handles soul injection, provider routing, and wake digest loading automatically.
+Or with a wrapper script that handles soul injection, provider routing, and wake digest loading automatically.
 
 ---
 
@@ -224,7 +225,7 @@ Every session, the agent:
 2. Runs the conversation — as thoughts happen, they're flagged for memory
 3. At session end (or via the dream daemon overnight), flagged content gets written to the **memory database** as typed entries (user facts, project state, feedback, references)
 4. The **surface engine** pulls the most relevant memories into the next session's context using embedding similarity
-5. The **Ouroboros** compression cycle (every 8 hours) collapses old memories into compressed summaries, keeping the database lean
+5. Salience **decay** runs continuously — unused memories fade toward type floors (soul never erodes), and the nightly **dream** consolidates the day into insights
 
 The agent doesn't "remember everything." They remember what mattered, compressed over time. Same as you.
 
